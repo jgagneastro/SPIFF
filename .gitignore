@@ -21,6 +21,18 @@ wheels/
 *.egg
 MANIFEST
 
+# SPIFF outputs
+spiff_outputs/
+outputs/
+logs/
+*.fits
+*.jsonl
+download_manifest.csv
+compiled_results.csv
+analyzer_results.json
+spherex_autotype_*.png
+figs/
+
 # Virtual environments
 .venv/
 venv/

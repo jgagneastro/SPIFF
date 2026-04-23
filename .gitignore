@@ -22,6 +22,7 @@ wheels/
 MANIFEST
 
 # SPIFF outputs
+runs/
 spiff_outputs/
 outputs/
 logs/
@@ -30,7 +31,7 @@ logs/
 download_manifest.csv
 compiled_results.csv
 analyzer_results.json
-spherex_autotype_*.png
+spiff_autotype_*.png
 figs/
 
 # Virtual environments

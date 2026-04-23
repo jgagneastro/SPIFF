@@ -1962,7 +1962,7 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
                 # Clean up identifiers for folder naming
                 obsid_str  = str(obsid)  if (obsid  is not None and str(obsid).strip())  else "unknownOBSID"
                 expidn_str = str(expidn) if (expidn is not None and str(expidn).strip()) else "unknownEXPID"
-                wv_str     = ("%.1f" % approxwv_um) if np.isfinite(approxwv_um) else "nan"
+                wv_str     = ("%.1f" % approxwv_um) if np.isfinite(approxwv_um) else None
                 bandpass_str = str(bandpass) if (bandpass is not None and str(bandpass).strip()) else "unknownBP"
 
                 reference_ra_deg = float(ra)
@@ -1982,7 +1982,9 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
                 print(f"   -> ref: RA={reference_ra_deg:.9f} deg, Dec={reference_dec_deg:.9f} deg, epoch={ref_ep_log}, pmRA*={pmra_log} mas/yr, pmDec={pmdec_log} mas/yr")
                 # Per-image figs dir: obsid_expid_approxwv
                 # (computed entirely before any fitting)
-                img_stub = f"{obsid_str}{bandpass_str}_{expidn_str}_{wv_str}"
+                img_stub = f"{obsid_str}{bandpass_str}_{expidn_str}"
+                if wv_str is not None:
+                    img_stub = f"{img_stub}_{wv_str}"
                 save_dir = FIGS_DIR / img_stub
                 # ensure per-image figs directory exists before analyzer runs
                 try:

@@ -25,6 +25,8 @@ from astropy.io import fits
 from astropy.time import Time
 from astropy.wcs import WCS
 
+from .spherex_binning import write_binned_spherex_spectrum_csv
+
 # --- helpers for safe naming ---
 
 import re as _re
@@ -238,6 +240,7 @@ RESULTS_CSV = OUTDIR / "results.csv"
 RESULTS_JSONL = OUTDIR / "results.jsonl"
 DOWNLOAD_MANIFEST_JSONL = OUTDIR / "download_manifest.jsonl"
 DOWNLOAD_MANIFEST_CSV = OUTDIR / "download_manifest.csv"
+BINNED_SPECTRUM_CSV = OUTDIR / "binned_spectrum.csv"
 # Exact CSV schema (order matters!)
 CSV_FIELDS = [
     # PARAMETERS FOR THE BATCH FITS DOWNLOADER
@@ -2704,6 +2707,15 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
         df_out.to_csv(RESULTS_CSV, index=False)
         print(f"[batch] Wrote {len(df_out)} rows to {RESULTS_CSV}")
         print(f"[batch] Wrote JSONL with covariances to {RESULTS_JSONL}")
+        if bool(globals().get("WRITE_BINNED_SPECTRUM", True)):
+            try:
+                binned_out = write_binned_spherex_spectrum_csv(
+                    df_out,
+                    globals().get("BINNED_SPECTRUM_CSV", OUTDIR / "binned_spectrum.csv"),
+                )
+                print(f"[batch] Wrote binned SPHEREx spectrum to {binned_out}")
+            except Exception as exc:
+                print(f"[batch] warning: could not write binned SPHEREx spectrum: {exc}")
         #import pdb; pdb.set_trace()
         if skipped_count > 0:
             print(f"[batch] Skipped {skipped_count} candidate(s) already processed.")
@@ -2894,6 +2906,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Maximum randomized sleep before each DataLink resolve (seconds; default: 1.0).",
     )
+    p.add_argument(
+        "--write-binned-spectrum",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write OUTDIR/binned_spectrum.csv at the end using the SQL-equivalent SPHEREx nearest-bin weighted spectrum method (default: on).",
+    )
+    p.add_argument(
+        "--binned-spectrum-path",
+        type=str,
+        default=None,
+        help="Output path for --write-binned-spectrum (default: OUTDIR/binned_spectrum.csv).",
+    )
     return p
 
 
@@ -2922,6 +2946,11 @@ def cli_main(argv=None) -> int:
     globals()["RESULTS_JSONL"] = OUTDIR / "results.jsonl"
     globals()["DOWNLOAD_MANIFEST_JSONL"] = OUTDIR / "download_manifest.jsonl"
     globals()["DOWNLOAD_MANIFEST_CSV"] = OUTDIR / "download_manifest.csv"
+    globals()["BINNED_SPECTRUM_CSV"] = (
+        pathlib.Path(args.binned_spectrum_path).expanduser().resolve()
+        if args.binned_spectrum_path
+        else (OUTDIR / "binned_spectrum.csv")
+    )
     globals()["FIGS_DIR"] = OUTDIR / "figs"
     globals()["FITS_DIR"] = OUTDIR / "fits"
     globals()["DOWNLOAD_ONLY"] = bool(args.download_only)
@@ -2968,6 +2997,7 @@ def cli_main(argv=None) -> int:
     globals()["DATALINK_BATCH_MAX_IDS"] = max(1, int(args.datalink_batch_max_ids))
     globals()["DATALINK_JITTER_MIN_SEC"] = float(args.datalink_jitter_min_sec)
     globals()["DATALINK_JITTER_MAX_SEC"] = float(args.datalink_jitter_max_sec)
+    globals()["WRITE_BINNED_SPECTRUM"] = bool(args.write_binned_spectrum)
 
     exit_code = 0
     try:

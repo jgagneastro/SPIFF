@@ -28,6 +28,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
 
+from .spherex_binning import build_binned_spherex_spectrum, load_spherex_bins
+
 
 SPEED_OF_LIGHT = 299792458.0
 MAX_TEMPLATE_DIST_ANGSTROM = 100.0
@@ -40,7 +42,6 @@ MAX_WEIGHT_MEDIAN_RATIO = 25.0
 PACKAGE_DIR = Path(__file__).resolve().parent
 DATA_DIR = PACKAGE_DIR / "data"
 DEFAULT_TEMPLATES_PATH = DATA_DIR / "spherex_templates.joblib"
-DEFAULT_BINS_PATH = DATA_DIR / "spherex_bins.csv"
 
 
 def _to_flambda_from_fnu_jy(wv_um: np.ndarray, flux_jy: np.ndarray) -> np.ndarray:
@@ -111,99 +112,22 @@ def _read_csv_spectrum(path: str) -> pd.DataFrame:
         )
 
 def _load_spherex_bins() -> pd.DataFrame:
-    bins = pd.read_csv(DEFAULT_BINS_PATH)
-    if bins.empty:
-        raise ValueError("No local SPHEREx bin rows found.")
-    bins = bins.rename(
-        columns={
-            "index": "id",
-            "wavelength_center_um": "wavelength_um",
-            "wavelength_width_um": "wavelength_wid_um",
-        }
-    )
-    bins["id"] = pd.to_numeric(bins["id"], errors="coerce").astype(int)
-    bins["wavelength_um"] = pd.to_numeric(bins["wavelength_um"], errors="coerce")
-    bins = bins.dropna(subset=["wavelength_um"]).reset_index(drop=True)
-    if bins.empty:
-        raise ValueError("No valid local SPHEREx bin wavelengths found.")
-    return bins
-
-
-def _nearest_bin_indices(bin_centers_um: np.ndarray, wavelengths_um: np.ndarray) -> np.ndarray:
-    idx = np.searchsorted(bin_centers_um, wavelengths_um)
-    idx = np.clip(idx, 1, len(bin_centers_um) - 1)
-    left = idx - 1
-    right = idx
-    dist_left = np.abs(bin_centers_um[left] - wavelengths_um)
-    dist_right = np.abs(bin_centers_um[right] - wavelengths_um)
-    use_right = dist_right < dist_left
-    return np.where(use_right, right, left)
-
+    return load_spherex_bins()
 
 def _bin_spiff_like_spectrum(comp_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    required = {"wavelength_um", "flux_ujy", "flux_err_ujy"}
-    if not required.issubset(comp_df.columns):
+    try:
+        binned = build_binned_spherex_spectrum(comp_df)
+    except ValueError as exc:
         raise ValueError(
             "--bin requires SPIFF-like wavelength/flux/error columns in um/uJy/uJy_err. "
             "Supported for --csv and --raw inputs."
-        )
+        ) from exc
 
-    work = comp_df.copy()
-    for col in ["wavelength_um", "flux_ujy", "flux_err_ujy"]:
-        work[col] = pd.to_numeric(work[col], errors="coerce")
-    finite = (
-        np.isfinite(work["wavelength_um"])
-        & np.isfinite(work["flux_ujy"])
-        & np.isfinite(work["flux_err_ujy"])
-        & (work["wavelength_um"] > 0)
-        & (work["flux_ujy"] > 0)
-        & (work["flux_err_ujy"] > 0)
-    )
-    if "n_pix_used_in_fit" in work.columns:
-        work["n_pix_used_in_fit"] = pd.to_numeric(work["n_pix_used_in_fit"], errors="coerce")
-        finite &= np.isfinite(work["n_pix_used_in_fit"]) & (work["n_pix_used_in_fit"] >= 3)
-    if "psf_un_snr" in work.columns:
-        work["psf_un_snr"] = pd.to_numeric(work["psf_un_snr"], errors="coerce")
-        finite &= np.isfinite(work["psf_un_snr"]) & (work["psf_un_snr"] >= 0.1)
-    work = work.loc[finite].copy()
-    if len(work) < MIN_MATCH_POINTS:
-        raise ValueError("Not enough valid SPIFF-like points remain for --bin after filtering.")
-
-    bins = _load_spherex_bins()
-    bin_centers = bins["wavelength_um"].to_numpy(dtype=float)
-    if len(bin_centers) < 2:
-        raise ValueError("Need at least two local SPHEREx bins for --bin.")
-
-    nearest_idx = _nearest_bin_indices(bin_centers, work["wavelength_um"].to_numpy(dtype=float))
-    work["bin_idx"] = nearest_idx
-    work["bin_center_um"] = bin_centers[nearest_idx]
-
-    weights = 1.0 / np.square(work["flux_err_ujy"].to_numpy(dtype=float))
-    work["weight"] = weights
-    work["flux_over_var"] = work["flux_ujy"] * work["weight"]
-
-    grouped = (
-        work.groupby(["bin_idx", "bin_center_um"], sort=True, as_index=False)
-        .agg(
-            sum_w=("weight", "sum"),
-            sum_fw=("flux_over_var", "sum"),
-            n_points=("bin_idx", "size"),
-        )
-        .sort_values("bin_center_um", kind="stable")
-        .reset_index(drop=True)
-    )
-    grouped = grouped[grouped["sum_w"] > 0].copy()
-    if len(grouped) < MIN_MATCH_POINTS:
+    if len(binned) < MIN_MATCH_POINTS:
         raise ValueError("Not enough occupied SPHEREx bins remain for --bin.")
 
-    grouped["flux_ujy"] = grouped["sum_fw"] / grouped["sum_w"]
-    grouped["flux_err_ujy"] = np.sqrt(1.0 / grouped["sum_w"])
-    out = _to_comparison_df_from_spiff_units(
-        grouped["bin_center_um"].to_numpy(dtype=float),
-        grouped["flux_ujy"].to_numpy(dtype=float),
-        grouped["flux_err_ujy"].to_numpy(dtype=float),
-    )
-    return out, int(len(grouped))
+    out = binned[["wavelength_angstrom", "flux_flambda", "flux_flambda_unc", "ignored"]].copy()
+    return out, int(len(out))
 
 
 def _load_templates() -> dict[int, dict[str, object]]:

@@ -16,8 +16,16 @@ from typing import Iterable, Optional
 
 import pandas as pd
 
+from .spherex_binning import write_binned_spherex_spectrum_csv
 
-def compile_results_csvs(outdir: str, output_csv: Optional[str] = None) -> str:
+
+def compile_results_csvs(
+    outdir: str,
+    output_csv: Optional[str] = None,
+    *,
+    write_binned_spectrum: bool = False,
+    binned_output_csv: Optional[str] = None,
+) -> str:
     """Combine per-image result.csv/results.csv files under outdir/figs/*/ into one CSV."""
     base = Path(outdir).resolve()
     figs_dir = base / "figs"
@@ -55,6 +63,10 @@ def compile_results_csvs(outdir: str, output_csv: Optional[str] = None) -> str:
         output_csv = str(base / "compiled_results.csv")
 
     out.to_csv(output_csv, index=False)
+    if write_binned_spectrum:
+        if binned_output_csv is None:
+            binned_output_csv = str(base / "binned_spectrum.csv")
+        write_binned_spherex_spectrum_csv(out, binned_output_csv)
     return output_csv
 
 
@@ -66,13 +78,32 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=None,
         help="Output compiled CSV path (default: outdir/compiled_results.csv)",
     )
+    ap.add_argument(
+        "--write-binned-spectrum",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also write OUTDIR/binned_spectrum.csv using the SQL-equivalent SPHEREx binning method (default: on).",
+    )
+    ap.add_argument(
+        "--binned-output-csv",
+        default=None,
+        help="Output path for --write-binned-spectrum (default: outdir/binned_spectrum.csv).",
+    )
     return ap.parse_args(argv)
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
-    out = compile_results_csvs(args.outdir, args.output_csv)
+    out = compile_results_csvs(
+        args.outdir,
+        args.output_csv,
+        write_binned_spectrum=bool(args.write_binned_spectrum),
+        binned_output_csv=args.binned_output_csv,
+    )
     print(f"Wrote {out}")
+    if args.write_binned_spectrum:
+        binned_out = args.binned_output_csv or str(Path(args.outdir).resolve() / "binned_spectrum.csv")
+        print(f"Wrote {Path(binned_out).resolve()}")
     return 0
 
 

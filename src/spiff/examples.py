@@ -30,7 +30,7 @@ def simp_j0136_target_dir(base_outdir: str | Path = "spiff_examples") -> Path:
 def build_simp_j0136_test_commands(base_outdir: str | Path = "spiff_examples") -> list[str]:
     base = Path(base_outdir).expanduser()
     target_dir = simp_j0136_target_dir(base)
-    compiled_csv = target_dir / "compiled_results.csv"
+    binned_csv = target_dir / "binned_spectrum.csv"
     return [
         " ".join(
             [
@@ -45,8 +45,7 @@ def build_simp_j0136_test_commands(base_outdir: str | Path = "spiff_examples") -
                 "--save-figs",
             ]
         ),
-        f"spiff-compile-results --outdir {shlex.quote(str(target_dir))}",
-        f"spiff-autotype --csv {shlex.quote(str(compiled_csv))} --no-plot",
+        f"spiff-autotype --csv {shlex.quote(str(binned_csv))} --no-plot",
     ]
 
 
@@ -58,12 +57,12 @@ def run_simp_j0136_smoke_test(
     save_plot: bool = True,
     scipy_only: bool = False,
 ) -> dict[str, str]:
-    from .results import compile_results_csvs
     from .lv2 import cli_main as lv2_main
     from .autotype import main as autotype_main
 
     base = Path(base_outdir).expanduser().resolve()
     target_dir = simp_j0136_target_dir(base)
+    binned_csv = target_dir / "binned_spectrum.csv"
     lv2_args = [
         "--ra",
         str(SIMP_J0136_TARGET["ra_deg"]),
@@ -89,8 +88,7 @@ def run_simp_j0136_smoke_test(
     if lv2_rc != 0:
         raise RuntimeError(f"spiff-lv2 failed for SIMP J0136 with exit code {lv2_rc}")
 
-    compiled_csv = compile_results_csvs(str(target_dir))
-    autotype_args = ["--csv", compiled_csv]
+    autotype_args = ["--csv", str(binned_csv)]
     if not show_plot:
         autotype_args.append("--no-plot")
     if not save_plot:
@@ -102,5 +100,5 @@ def run_simp_j0136_smoke_test(
 
     return {
         "target_dir": str(target_dir),
-        "compiled_csv": str(compiled_csv),
+        "binned_csv": str(binned_csv),
     }

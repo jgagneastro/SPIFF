@@ -14,8 +14,8 @@ def test_simp_j0136_target_dir_matches_output_naming(tmp_path: Path) -> None:
 def test_simp_j0136_commands_include_verified_parameters(tmp_path: Path) -> None:
     commands = build_simp_j0136_test_commands(tmp_path)
 
-    assert len(commands) == 3
+    assert len(commands) == 2
     assert f"--ra {SIMP_J0136_TARGET['ra_deg']}" in commands[0]
     assert f"--reference-pmra-masyr {SIMP_J0136_TARGET['reference_pmra_masyr']}" in commands[0]
     assert f"--reference-pmdec-masyr {SIMP_J0136_TARGET['reference_pmdec_masyr']}" in commands[0]
-    assert str(simp_j0136_target_dir(tmp_path) / "compiled_results.csv") in commands[2]
+    assert str(simp_j0136_target_dir(tmp_path) / "binned_spectrum.csv") in commands[1]

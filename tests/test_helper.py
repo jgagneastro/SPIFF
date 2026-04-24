@@ -19,7 +19,9 @@ def test_compile_results_csvs_supports_result_and_results_names(tmp_path: Path) 
         [{"psf_un_wv_um": 1.0, "psf_un_flux_uJy": 10.0, "psf_un_flux_uJy_err": 1.0}]
     ).to_csv(second / "results.csv", index=False)
 
-    output = compile_results_csvs(str(tmp_path))
+    output = compile_results_csvs(str(tmp_path), write_binned_spectrum=True)
     frame = pd.read_csv(output)
+    binned = pd.read_csv(tmp_path / "binned_spectrum.csv")
 
     assert list(frame["psf_un_wv_um"]) == [1.0, 2.0]
+    assert {"wavelength_angstrom", "flux_flambda", "flux_flambda_unc"}.issubset(binned.columns)

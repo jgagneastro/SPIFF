@@ -40,11 +40,11 @@ If you do not install the UltraNest extra, use `--scipy-only` for fitting comman
 ## Command Summary
 
 - `spiff-lv2`
-  - Discover nearby SPHEREx level-2 observations, download FITS files or cutouts, and run the per-image fitter.
+  - Discover nearby SPHEREx level-2 observations, download FITS files or cutouts, run the per-image fitter, and write `binned_spectrum.csv` by default.
 - `spiff-fit`
   - Run the single-image fitter on one local FITS file.
 - `spiff-compile-results`
-  - Combine `figs/*/result.csv` or `figs/*/results.csv` into one `compiled_results.csv`.
+  - Combine `figs/*/result.csv` or `figs/*/results.csv` into one `compiled_results.csv` and optionally regenerate `binned_spectrum.csv`.
 - `spiff-autotype`
   - Compare a local spectrum against the bundled SPHEREx template library.
 
@@ -87,12 +87,23 @@ That creates an output directory like:
 Inside it you will typically see:
 
 - `results.csv`
+- `binned_spectrum.csv`
 - `results.jsonl`
 - `download_manifest.csv`
 - `fits/`
 - `figs/`
 
-### 2. Compile per-image result files
+### 2. Run autotype on the default binned SPIFF spectrum
+
+```bash
+spiff-autotype \
+  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/binned_spectrum.csv \
+  --no-plot
+```
+
+If you want the diagnostic plot saved next to the CSV, omit `--no-save-plot`.
+
+### 3. Optional: compile the raw per-image result files
 
 ```bash
 spiff-compile-results \
@@ -104,16 +115,6 @@ This writes:
 ```text
 ./runs/M31_demo_RA10.684708_DEC41.268750/compiled_results.csv
 ```
-
-### 3. Run autotype on the compiled SPIFF output
-
-```bash
-spiff-autotype \
-  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/compiled_results.csv \
-  --no-plot
-```
-
-If you want the diagnostic plot saved next to the CSV, omit `--no-save-plot`.
 
 ## SIMP J0136 Smoke Test
 
@@ -140,11 +141,8 @@ spiff-lv2 \
   --outdir ./runs \
   --save-figs
 
-spiff-compile-results \
-  --outdir ./runs/SIMP-J013656.5093347.3_RA24.241250_DEC9.563070
-
 spiff-autotype \
-  --csv ./runs/SIMP-J013656.5093347.3_RA24.241250_DEC9.563070/compiled_results.csv \
+  --csv ./runs/SIMP-J013656.5093347.3_RA24.241250_DEC9.563070/binned_spectrum.csv \
   --no-plot
 ```
 
@@ -154,7 +152,7 @@ If you prefer Python over shell commands, the same flow is available as a helper
 from spiff.examples import run_simp_j0136_smoke_test
 
 result = run_simp_j0136_smoke_test("./runs")
-print(result["compiled_csv"])
+print(result["binned_csv"])
 ```
 
 If you only want the copy-paste shell commands, you can generate them programmatically:
@@ -165,6 +163,25 @@ from spiff.examples import build_simp_j0136_test_commands
 for command in build_simp_j0136_test_commands("./runs"):
     print(command)
 ```
+
+## Committed Example Products
+
+The repo now includes a small committed SIMP J0136 comparison set under:
+
+```text
+example_products/simp_j0136/
+```
+
+It contains:
+
+- `simp_j0136_unbinned.csv`
+  - combined non-binned SPIFF CSV
+- `simp_j0136_binned.csv`
+  - SPHEREx-bin-weighted reduced spectrum
+- `simp_j0136_autotype_binned.png`
+  - autotype comparison plot produced from the binned CSV
+
+That gives public users a stable three-way comparison target without having to rerun the full `lv2` workflow first.
 
 ## Autotype Inputs
 
@@ -198,13 +215,15 @@ Optional:
 
 - `ignored`
 
+SPIFF writes `binned_spectrum.csv` in this reduced format by default at the end of `spiff-lv2`.
+
 ## Useful Autotype Options
 
 ### Overplot local binning without fitting the binned spectrum
 
 ```bash
 spiff-autotype \
-  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/compiled_results.csv \
+  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/results.csv \
   --overplotbin \
   --no-plot
 ```
@@ -213,7 +232,7 @@ spiff-autotype \
 
 ```bash
 spiff-autotype \
-  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/compiled_results.csv \
+  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/results.csv \
   --bin \
   --no-plot
 ```
@@ -222,7 +241,7 @@ spiff-autotype \
 
 ```bash
 spiff-autotype \
-  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/compiled_results.csv \
+  --csv ./runs/M31_demo_RA10.684708_DEC41.268750/binned_spectrum.csv \
   --overlay-spectral-types T8,L0 \
   --no-plot
 ```
@@ -257,7 +276,7 @@ spiff-fit \
 
 ## Output Notes
 
-`results.csv` from `spiff-lv2` is the main machine-readable output. It includes:
+`results.csv` from `spiff-lv2` is the main raw machine-readable output. It includes:
 
 - input target coordinates
 - projected coordinates used for each exposure
@@ -265,6 +284,8 @@ spiff-fit \
 - aperture metrics
 - SciPy PSF-fit metrics
 - UltraNest PSF-fit metrics when available
+
+`binned_spectrum.csv` is the default reduced-spectrum product. It uses the same nearest-SPHEREx-bin weighted mean and weighted standard-error method as the SQL workflow, then converts the bin-averaged `uJy` fluxes to `F_lambda`.
 
 For autotype, the most important columns are:
 

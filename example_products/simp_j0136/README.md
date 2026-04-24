@@ -1,6 +1,6 @@
-# SIMP J0136 Public Comparison Products
+# SIMP J0136 Comparison Products
 
-These files are committed as a small public reference set for SPIFF comparison work.
+These files are committed as a small reference set for SPIFF comparison work.
 
 Files:
 

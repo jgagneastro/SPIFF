@@ -6,7 +6,7 @@ SPIFF provides the SPHEREx level-2 batch workflow, single-image fitting tools, r
 
 If you use SPIFF in published work, please cite:
 
-J. Gagné et al. (2026, submitted to ApJ)
+J. Gagné et al. (2026, submitted to ApJ) https://arxiv.org/pdf/2604.22012
 
 ## Install
 

@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
 
-from .spherex_binning import build_binned_spherex_spectrum, load_spherex_bins
+from .spherex_binning import _resolve_input_columns, build_binned_spherex_spectrum, load_spherex_bins
 
 
 SPEED_OF_LIGHT = 299792458.0
@@ -74,27 +74,21 @@ def _to_comparison_df_from_spiff_units(
 def _read_csv_spectrum(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     cols = set(df.columns)
-    if {"psf_un_wv_um", "psf_un_flux_uJy", "psf_un_flux_uJy_err"}.issubset(cols):
-        wv_um = df["psf_un_wv_um"].astype(float).to_numpy()
-        flux_ujy = df["psf_un_flux_uJy"].astype(float).to_numpy()
-        flux_ujy_err = df["psf_un_flux_uJy_err"].astype(float).to_numpy()
+    raw_schemas = (
+        {"psf_un_wv_um", "psf_un_flux_uJy", "psf_un_flux_uJy_err"},
+        {"psf_scipy_wv_um", "psf_scipy_flux_uJy", "psf_scipy_flux_uJy_err"},
+        {"wavelength_um", "flux_ujy", "flux_err_ujy"},
+    )
+    if any(schema.issubset(cols) for schema in raw_schemas):
+        wavelength_col, flux_col, flux_err_col, snr_col, n_pix_col = _resolve_input_columns(df)
+        wv_um = pd.to_numeric(df[wavelength_col], errors="coerce").to_numpy(dtype=float)
+        flux_ujy = pd.to_numeric(df[flux_col], errors="coerce").to_numpy(dtype=float)
+        flux_ujy_err = pd.to_numeric(df[flux_err_col], errors="coerce").to_numpy(dtype=float)
         out = _to_comparison_df_from_spiff_units(wv_um, flux_ujy, flux_ujy_err)
-        if "psf_un_snr" in df.columns:
-            out["psf_un_snr"] = pd.to_numeric(df["psf_un_snr"], errors="coerce").to_numpy(dtype=float)
-        if "n_pix_used_in_fit" in df.columns:
-            out["n_pix_used_in_fit"] = pd.to_numeric(df["n_pix_used_in_fit"], errors="coerce").to_numpy(dtype=float)
-        return out
-    elif {"wavelength_um", "flux_ujy", "flux_err_ujy"}.issubset(cols):
-        wv_um = df["wavelength_um"].astype(float).to_numpy()
-        flux_ujy = df["flux_ujy"].astype(float).to_numpy()
-        flux_ujy_err = df["flux_err_ujy"].astype(float).to_numpy()
-        out = _to_comparison_df_from_spiff_units(wv_um, flux_ujy, flux_ujy_err)
-        if "snr" in df.columns:
-            out["psf_un_snr"] = pd.to_numeric(df["snr"], errors="coerce").to_numpy(dtype=float)
-        elif "flux_snr" in df.columns:
-            out["psf_un_snr"] = pd.to_numeric(df["flux_snr"], errors="coerce").to_numpy(dtype=float)
-        if "n_pix_used_in_fit" in df.columns:
-            out["n_pix_used_in_fit"] = pd.to_numeric(df["n_pix_used_in_fit"], errors="coerce").to_numpy(dtype=float)
+        if snr_col is not None:
+            out["psf_un_snr"] = pd.to_numeric(df[snr_col], errors="coerce").to_numpy(dtype=float)
+        if n_pix_col is not None:
+            out["n_pix_used_in_fit"] = pd.to_numeric(df[n_pix_col], errors="coerce").to_numpy(dtype=float)
         return out
     elif {"wavelength_angstrom", "flux_flambda", "flux_flambda_unc"}.issubset(cols):
         out = df.copy()
@@ -107,6 +101,7 @@ def _read_csv_spectrum(path: str) -> pd.DataFrame:
         raise ValueError(
             "CSV missing required columns. Supported schemas are "
             "['psf_un_wv_um', 'psf_un_flux_uJy', 'psf_un_flux_uJy_err'] or "
+            "['psf_scipy_wv_um', 'psf_scipy_flux_uJy', 'psf_scipy_flux_uJy_err'] or "
             "['wavelength_um', 'flux_ujy', 'flux_err_ujy'] or "
             "['wavelength_angstrom', 'flux_flambda', 'flux_flambda_unc']."
         )

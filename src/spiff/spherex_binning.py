@@ -54,17 +54,37 @@ def _to_flambda_from_ujy(wavelength_um: np.ndarray, flux_ujy: np.ndarray) -> np.
 
 def _resolve_input_columns(frame: pd.DataFrame) -> tuple[str, str, str, str | None, str | None]:
     columns = set(frame.columns)
-    if {"psf_un_wv_um", "psf_un_flux_uJy", "psf_un_flux_uJy_err"}.issubset(columns):
-        snr_col = "psf_un_snr" if "psf_un_snr" in columns else None
-        n_pix_col = "n_pix_used_in_fit" if "n_pix_used_in_fit" in columns else None
-        return "psf_un_wv_um", "psf_un_flux_uJy", "psf_un_flux_uJy_err", snr_col, n_pix_col
-    if {"wavelength_um", "flux_ujy", "flux_err_ujy"}.issubset(columns):
-        snr_col = "snr" if "snr" in columns else ("flux_snr" if "flux_snr" in columns else None)
-        n_pix_col = "n_pix_used_in_fit" if "n_pix_used_in_fit" in columns else None
-        return "wavelength_um", "flux_ujy", "flux_err_ujy", snr_col, n_pix_col
+    n_pix_col = "n_pix_used_in_fit" if "n_pix_used_in_fit" in columns else None
+    candidates = (
+        ("psf_un_wv_um", "psf_un_flux_uJy", "psf_un_flux_uJy_err", "psf_un_snr"),
+        ("psf_scipy_wv_um", "psf_scipy_flux_uJy", "psf_scipy_flux_uJy_err", "psf_scipy_snr"),
+        ("wavelength_um", "flux_ujy", "flux_err_ujy", "snr" if "snr" in columns else "flux_snr"),
+    )
+    available: list[tuple[str, str, str, str | None, str | None]] = []
+    for wavelength_col, flux_col, flux_err_col, snr_col in candidates:
+        required = {wavelength_col, flux_col, flux_err_col}
+        if not required.issubset(columns):
+            continue
+        resolved = (
+            wavelength_col,
+            flux_col,
+            flux_err_col,
+            snr_col if snr_col in columns else None,
+            n_pix_col,
+        )
+        available.append(resolved)
+        numeric = frame[[wavelength_col, flux_col, flux_err_col]].apply(pd.to_numeric, errors="coerce")
+        if np.isfinite(numeric.to_numpy(dtype=float)).all(axis=1).any():
+            return resolved
+
+    # Preserve the existing filtering error for a recognized but entirely invalid
+    # schema. This is more useful than reporting that its columns are absent.
+    if available:
+        return available[0]
     raise ValueError(
         "Binning requires SPIFF-like columns "
         "['psf_un_wv_um', 'psf_un_flux_uJy', 'psf_un_flux_uJy_err'] or "
+        "['psf_scipy_wv_um', 'psf_scipy_flux_uJy', 'psf_scipy_flux_uJy_err'] or "
         "['wavelength_um', 'flux_ujy', 'flux_err_ujy']."
     )
 

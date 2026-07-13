@@ -92,3 +92,23 @@ def test_autotype_supports_raw_spiff_style_csv(tmp_path: Path) -> None:
 
     rc = main(["--csv", str(csv_path), "--bin", "--no-plot", "--no-save-plot"])
     assert rc == 0
+
+
+def test_autotype_supports_scipy_only_spiff_csv(tmp_path: Path) -> None:
+    raw = pd.DataFrame(
+        {
+            "psf_un_wv_um": [float("nan")] * 5,
+            "psf_un_flux_uJy": [float("nan")] * 5,
+            "psf_un_flux_uJy_err": [float("nan")] * 5,
+            "psf_scipy_wv_um": [0.744, 0.766, 0.788, 0.810, 0.832],
+            "psf_scipy_flux_uJy": [20.0, 21.0, 22.0, 21.5, 20.5],
+            "psf_scipy_flux_uJy_err": [2.0, 2.0, 2.0, 2.0, 2.0],
+            "psf_scipy_snr": [10.0, 10.5, 11.0, 10.75, 10.25],
+            "n_pix_used_in_fit": [10, 10, 10, 10, 10],
+        }
+    )
+    csv_path = tmp_path / "scipy_only_spiff.csv"
+    raw.to_csv(csv_path, index=False)
+
+    rc = main(["--csv", str(csv_path), "--bin", "--no-plot", "--no-save-plot"])
+    assert rc == 0

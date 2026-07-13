@@ -193,11 +193,17 @@ That gives public users a stable three-way comparison target without having to r
 
 ### Raw SPIFF-style CSV
 
-Required columns:
+The preferred UltraNest columns are:
 
 - `psf_un_wv_um`
 - `psf_un_flux_uJy`
 - `psf_un_flux_uJy_err`
+
+For a `--scipy-only` run, SPIFF automatically uses:
+
+- `psf_scipy_wv_um`
+- `psf_scipy_flux_uJy`
+- `psf_scipy_flux_uJy_err`
 
 Optional columns that help filtering/plotting:
 
@@ -297,7 +303,9 @@ For autotype, the most important columns are:
 - `psf_un_flux_uJy`
 - `psf_un_flux_uJy_err`
 
-If you ran with `--scipy-only`, the `psf_un_*` columns may be empty or less useful for downstream autotyping. In that case, inspect the output carefully before treating it as a final spectrum.
+If you ran with `--scipy-only`, SPIFF uses the corresponding populated
+`psf_scipy_*` wavelength, flux, uncertainty, and S/N columns when it creates
+`binned_spectrum.csv`. UltraNest results remain preferred when they are populated.
 
 ## Bundled Local Assets
 
@@ -332,7 +340,8 @@ spiff-lv2 ... --scipy-only
 `--bin` only works for SPIFF-style CSV inputs that contain:
 
 - `wavelength_um`, `flux_ujy`, `flux_err_ujy`, or
-- `psf_un_wv_um`, `psf_un_flux_uJy`, `psf_un_flux_uJy_err`
+- `psf_un_wv_um`, `psf_un_flux_uJy`, `psf_un_flux_uJy_err`, or
+- `psf_scipy_wv_um`, `psf_scipy_flux_uJy`, `psf_scipy_flux_uJy_err`
 
 It is not meant for already-reduced `wavelength_angstrom / flux_flambda / flux_flambda_unc` inputs.
 

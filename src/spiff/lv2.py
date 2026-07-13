@@ -43,6 +43,18 @@ def _append_log(log_path, text: str):
         pass
 
 
+def _write_row_jsonl(handle, row: dict) -> str:
+    """Append one serialized result row and return the emitted JSON payload."""
+    payload = json.dumps(
+        row,
+        allow_nan=True,
+        default=lambda value: value.item() if hasattr(value, "item") else str(value),
+    )
+    handle.write(payload + "\n")
+    handle.flush()
+    return payload
+
+
 def _coerce_finite_float(value: object) -> float:
     """Return a finite float for numeric-like scalar metadata, else NaN."""
     try:
@@ -2517,11 +2529,13 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
                     print(f"   -> wrote per-image CSV: {per_csv}")
                 except Exception as e:
                     print(f"   -> could not write per-image CSV: {e}")
-                # Stream one machine-readable row event for live wrapper-side upsert.
+                # Persist the row and stream the same machine-readable event for
+                # live wrapper-side upsert.
                 try:
-                    print("[LV2_ROW_JSON] " + json.dumps(row, allow_nan=True, default=lambda o: (o.item() if hasattr(o, "item") else str(o))))
+                    row_json = _write_row_jsonl(jsonl, row)
+                    print("[LV2_ROW_JSON] " + row_json)
                 except Exception as e:
-                    print(f"   -> could not emit LV2_ROW_JSON: {e}")
+                    print(f"   -> could not write/emit LV2_ROW_JSON: {e}")
 
             except KeyboardInterrupt:
                 print("\n[batch] Interrupted by user, writing partial results …")
@@ -2744,11 +2758,13 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
                         print(f"   -> wrote per-image CSV: {per_csv}")
                     except Exception as e:
                         print(f"   -> could not write per-image CSV (failure placeholder): {e}")
-                    # Stream one machine-readable row event for live wrapper-side upsert.
+                    # Persist the failure row and stream the same machine-readable
+                    # event for live wrapper-side upsert.
                     try:
-                        print("[LV2_ROW_JSON] " + json.dumps(row, allow_nan=True, default=lambda o: (o.item() if hasattr(o, "item") else str(o))))
+                        row_json = _write_row_jsonl(jsonl, row)
+                        print("[LV2_ROW_JSON] " + row_json)
                     except Exception as e:
-                        print(f"   -> could not emit LV2_ROW_JSON (failure placeholder): {e}")
+                        print(f"   -> could not write/emit LV2_ROW_JSON (failure placeholder): {e}")
 
     jsonl.close()
 

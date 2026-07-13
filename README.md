@@ -84,6 +84,10 @@ That creates an output directory like:
 ./runs/M31_demo_RA10.684708_DEC41.268750/
 ```
 
+By default, `spiff-lv2` uses anonymous S3 byte-range reads and saves a
+20×20-pixel cutout around the epoch-adjusted target position. Use
+`--no-s3-cutout` only when a full Level 2 FITS file is explicitly required.
+
 Inside it you will typically see:
 
 - `results.csv`

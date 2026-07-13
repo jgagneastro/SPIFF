@@ -464,6 +464,7 @@ DOWNLOAD_MAX_RETRIES = 5        # number of attempts for transient download erro
 DOWNLOAD_RETRY_SLEEP_SEC = 45   # sleep between retries (seconds)
 # First 8 retries are intentionally short (<=5s) for quick recovery from brief hiccups.
 DOWNLOAD_RETRY_SCHEDULE_SEC = [1, 1, 2, 2, 3, 3, 4, 5, 15, 30, 60, 120, 300, 900]
+DEFAULT_S3_CUTOUT_SIZE_PX = 20
 
 def _is_transient_download_error(e: Exception) -> bool:
     """Return True for transient HTTP/proxy/network errors during FITS download."""
@@ -610,6 +611,73 @@ def _s3_key_from_fits_url(url: str) -> str:
             return key
     raise ValueError(f"Cannot map FITS URL to S3 key: {u}")
 
+def _write_fits_cutout(
+    hdul,
+    out_path: str,
+    *,
+    xpix: float,
+    ypix: float,
+    cutout_size_px: int = DEFAULT_S3_CUTOUT_SIZE_PX,
+) -> tuple[int, int, int, int]:
+    """Write detector-plane sections without materializing full remote images."""
+    if len(hdul) < 4:
+        raise RuntimeError("S3 cutout requires at least HDUs 1/2/3 with image data.")
+
+    hdr_img = hdul[1].header
+    if int(hdr_img.get("NAXIS", 0) or 0) != 2:
+        raise RuntimeError("S3 cutout IMAGE HDU is not a two-dimensional image.")
+    nx = int(hdr_img.get("NAXIS1", 0) or 0)
+    ny = int(hdr_img.get("NAXIS2", 0) or 0)
+    if nx <= 0 or ny <= 0:
+        raise RuntimeError("S3 cutout IMAGE HDU has invalid detector dimensions.")
+
+    size = max(8, int(cutout_size_px))
+    width = min(size, nx)
+    height = min(size, ny)
+    cx = int(round(float(xpix)))
+    cy = int(round(float(ypix)))
+    x0 = min(max(0, cx - width // 2), nx - width)
+    y0 = min(max(0, cy - height // 2), ny - height)
+    x1 = x0 + width
+    y1 = y0 + height
+
+    out_hdus = [fits.PrimaryHDU(header=hdul[0].header.copy())]
+    for idx in range(1, len(hdul)):
+        hdu = hdul[idx]
+        hdr = hdu.header
+        is_detector_plane = (
+            int(hdr.get("NAXIS", 0) or 0) == 2
+            and int(hdr.get("NAXIS1", 0) or 0) == nx
+            and int(hdr.get("NAXIS2", 0) or 0) == ny
+        )
+        if not is_detector_plane:
+            out_hdus.append(hdu.copy())
+            continue
+
+        # ImageHDU.section is the key to issuing byte-range reads for only the
+        # requested rows. Accessing hdu.data here would fetch the full detector.
+        arr = np.asarray(hdu.section[y0:y1, x0:x1])
+        out_hdr = hdr.copy()
+        if "CRPIX1" in out_hdr:
+            try:
+                out_hdr["CRPIX1"] = float(out_hdr["CRPIX1"]) - float(x0)
+            except Exception:
+                pass
+        if "CRPIX2" in out_hdr:
+            try:
+                out_hdr["CRPIX2"] = float(out_hdr["CRPIX2"]) - float(y0)
+            except Exception:
+                pass
+        if idx == 1:
+            out_hdr["SPXORX0"] = (int(x0), "Original detector X0 for S3 cutout")
+            out_hdr["SPXORY0"] = (int(y0), "Original detector Y0 for S3 cutout")
+            out_hdr["SPXNX"] = (int(nx), "Original detector NAXIS1 before S3 cutout")
+            out_hdr["SPXNY"] = (int(ny), "Original detector NAXIS2 before S3 cutout")
+        out_hdus.append(fits.ImageHDU(data=arr, header=out_hdr, name=hdu.name))
+
+    fits.HDUList(out_hdus).writeto(out_path, overwrite=True)
+    return x0, x1, y0, y1
+
 def _download_file_via_s3(url: str, out_path: str) -> str:
     """Download a FITS file via S3 using s3fs."""
     try:
@@ -620,7 +688,7 @@ def _download_file_via_s3(url: str, out_path: str) -> str:
     key = _s3_key_from_fits_url(url)
     print(f"[batch] S3 download: bucket={bucket} key={key}")
     use_cutout = bool(globals().get("S3_CUTOUT", True))
-    cutout_size_px = int(globals().get("S3_CUTOUT_SIZE_PX", 30))
+    cutout_size_px = int(globals().get("S3_CUTOUT_SIZE_PX", DEFAULT_S3_CUTOUT_SIZE_PX))
     center_ra_deg = globals().get("S3_CUTOUT_CENTER_RA_DEG", None)
     center_dec_deg = globals().get("S3_CUTOUT_CENTER_DEC_DEG", None)
     ref_epoch_yr = globals().get("REFERENCE_CRD_EPOCH_YR", None)
@@ -628,17 +696,18 @@ def _download_file_via_s3(url: str, out_path: str) -> str:
     pmdec_masyr = globals().get("REFERENCE_PMDEC_MASYR", None)
     s3 = s3fs.S3FileSystem(anon=True)
     if use_cutout and center_ra_deg is not None and center_dec_deg is not None:
-        s3_url = f"s3://{bucket}/{key}"
         try:
-            with fits.open(
-                s3_url,
-                use_fsspec=True,
-                fsspec_kwargs={"anon": True},
+            remote_fh = s3.open(
+                f"{bucket}/{key}",
+                mode="rb",
+                block_size=256 * 1024,
+                cache_type="bytes",
+            )
+            with remote_fh, fits.open(
+                remote_fh,
                 memmap=False,
-                lazy_load_hdus=False,
+                lazy_load_hdus=True,
             ) as hdul:
-                if len(hdul) < 4 or hdul[1].data is None:
-                    raise RuntimeError("S3 cutout requires at least HDUs 1/2/3 with image data.")
                 hdr_img = hdul[1].header
                 obs_mjd = hdr_img.get("MJD-AVG", hdr_img.get("MJD_EPOCH_AVG", hdr_img.get("MJD", None)))
                 adj_ra_deg, adj_dec_deg = project_to_epoch(
@@ -652,42 +721,13 @@ def _download_file_via_s3(url: str, out_path: str) -> str:
                 w = WCS(hdr_img)
                 sky = SkyCoord(adj_ra_deg * u.deg, adj_dec_deg * u.deg, frame="icrs")
                 xpix, ypix = w.world_to_pixel(sky)
-                ny, nx = np.asarray(hdul[1].data).shape
-                size = max(8, int(cutout_size_px))
-                half = size // 2
-                cx = int(round(float(xpix)))
-                cy = int(round(float(ypix)))
-                x0 = max(0, cx - half)
-                y0 = max(0, cy - half)
-                x1 = min(nx, x0 + size)
-                y1 = min(ny, y0 + size)
-                if x1 <= x0 or y1 <= y0:
-                    raise RuntimeError("Computed S3 cutout bounds are empty.")
-                out_hdus = [fits.PrimaryHDU(header=hdul[0].header.copy())]
-                for idx in range(1, len(hdul)):
-                    hdu = hdul[idx]
-                    if idx in (1, 2, 3):
-                        arr = np.asarray(hdu.section[y0:y1, x0:x1])
-                        hdr = hdu.header.copy()
-                        if "CRPIX1" in hdr:
-                            try:
-                                hdr["CRPIX1"] = float(hdr["CRPIX1"]) - float(x0)
-                            except Exception:
-                                pass
-                        if "CRPIX2" in hdr:
-                            try:
-                                hdr["CRPIX2"] = float(hdr["CRPIX2"]) - float(y0)
-                            except Exception:
-                                pass
-                        if idx == 1:
-                            hdr["SPXORX0"] = (int(x0), "Original detector X0 for S3 cutout")
-                            hdr["SPXORY0"] = (int(y0), "Original detector Y0 for S3 cutout")
-                            hdr["SPXNX"] = (int(nx), "Original detector NAXIS1 before S3 cutout")
-                            hdr["SPXNY"] = (int(ny), "Original detector NAXIS2 before S3 cutout")
-                        out_hdus.append(fits.ImageHDU(data=arr, header=hdr, name=hdu.name))
-                    else:
-                        out_hdus.append(hdu.copy())
-                fits.HDUList(out_hdus).writeto(out_path, overwrite=True)
+                x0, x1, y0, y1 = _write_fits_cutout(
+                    hdul,
+                    out_path,
+                    xpix=float(xpix),
+                    ypix=float(ypix),
+                    cutout_size_px=cutout_size_px,
+                )
                 print(
                     f"[batch] S3 cutout wrote local FITS: x=[{x0}:{x1}) y=[{y0}:{y1}) "
                     f"size={x1-x0}x{y1-y0}px"
@@ -728,7 +768,7 @@ def _download_file_with_retries(url: str, *, max_retries: int | None = None, tim
     use_curl_resume = bool(globals().get("CURL_RESUME", False))
     s3_bucket = str(globals().get("S3_BUCKET", "nasa-irsa-spherex")).strip() or "nasa-irsa-spherex"
     s3_cutout = bool(globals().get("S3_CUTOUT", True))
-    s3_cutout_size_px = int(globals().get("S3_CUTOUT_SIZE_PX", 20))
+    s3_cutout_size_px = int(globals().get("S3_CUTOUT_SIZE_PX", DEFAULT_S3_CUTOUT_SIZE_PX))
     s3_cutout_expand_on_masked = bool(globals().get("S3_CUTOUT_EXPAND_ON_MASKED", True))
     s3_cutout_retry_size_px = int(globals().get("S3_CUTOUT_RETRY_SIZE_PX", 64))
 
@@ -2151,7 +2191,7 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
                     and bool(globals().get("S3_CUTOUT", True))
                     and bool(globals().get("S3_CUTOUT_EXPAND_ON_MASKED", True))
                 ):
-                    cur_cutout_size = int(globals().get("S3_CUTOUT_SIZE_PX", 20))
+                    cur_cutout_size = int(globals().get("S3_CUTOUT_SIZE_PX", DEFAULT_S3_CUTOUT_SIZE_PX))
                     retry_cutout_size = int(globals().get("S3_CUTOUT_RETRY_SIZE_PX", 64))
                     retry_cutout_size = max(retry_cutout_size, 60, cur_cutout_size)
                     if retry_cutout_size > cur_cutout_size:
@@ -2861,7 +2901,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--s3-cutout-size-px",
         type=int,
-        default=20,
+        default=DEFAULT_S3_CUTOUT_SIZE_PX,
         help="Cutout width/height in detector pixels for --downloader s3 (default: 20).",
     )
     p.add_argument(

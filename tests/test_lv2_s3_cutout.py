@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from astropy.io import fits
 
 from spiff import lv2
@@ -38,6 +39,28 @@ def test_lv2_defaults_to_20_pixel_s3_cutouts():
     assert args.downloader == "s3"
     assert args.s3_cutout is True
     assert args.s3_cutout_size_px == lv2.DEFAULT_S3_CUTOUT_SIZE_PX == 20
+
+
+def test_coerce_finite_float_accepts_numeric_strings_and_rejects_missing_values():
+    assert lv2._coerce_finite_float("1.1033e-06") == 1.1033e-06
+    assert lv2._coerce_finite_float(np.float64(1.6499e-06)) == 1.6499e-06
+    assert np.isnan(lv2._coerce_finite_float("not available"))
+    assert np.isnan(lv2._coerce_finite_float(pd.NA))
+    assert np.isnan(lv2._coerce_finite_float(["1.0"]))
+
+
+def test_sia_csv_extra_trailing_field_does_not_shift_wavelength_columns(monkeypatch):
+    csv_text = (
+        "obs_collection,access_url,em_min,em_max\n"
+        "spherex_qr2,https://example.test/image.fits,1.1033e-06,1.6499e-06,extra\n"
+    )
+    monkeypatch.setattr(lv2, "_irsa_query_sia_csv_with_retries", lambda params: csv_text)
+
+    result = lv2.query_obscore_sia2(10.0, 20.0)
+
+    assert result.loc[0, "access_url"] == "https://example.test/image.fits"
+    assert result.loc[0, "em_min"] == 1.1033e-06
+    assert result.loc[0, "em_max"] == 1.6499e-06
 
 
 def test_cutout_crops_every_detector_plane_and_preserves_auxiliary_hdus(tmp_path):

@@ -8,6 +8,7 @@ import traceback
 import random
 import io
 import urllib.request
+import warnings
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
@@ -40,6 +41,19 @@ def _append_log(log_path, text: str):
             fh.write(text.rstrip("\n") + "\n")
     except Exception:
         pass
+
+
+def _coerce_finite_float(value: object) -> float:
+    """Return a finite float for numeric-like scalar metadata, else NaN."""
+    try:
+        coerced = pd.to_numeric(value, errors="coerce")
+        if not np.isscalar(coerced):
+            return np.nan
+        result = float(coerced)
+    except (TypeError, ValueError):
+        return np.nan
+    return result if math.isfinite(result) else np.nan
+
 
 def _infer_obs_collection(obs_collection: object, fits_url: object = None, hdr: object = None) -> str:
     """
@@ -995,7 +1009,12 @@ def query_obscore_sia2(ra, dec, radius_arcmin=1.0, collections=("spherex_qr2", "
     lines = [ln for ln in text.splitlines() if ln.strip() and (not ln.lstrip().startswith("#"))]
     if not lines:
         return pd.DataFrame()
-    df = pd.read_csv(io.StringIO("\n".join(lines)))
+    # IRSA's cloud_access JSON can contain unescaped commas, leaving extra
+    # trailing CSV fields.  Without index_col=False pandas shifts leading
+    # columns into an implicit index, corrupting em_min/em_max and other fields.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=pd.errors.ParserWarning)
+        df = pd.read_csv(io.StringIO("\n".join(lines)), index_col=False)
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -1969,10 +1988,10 @@ def main(ra=DEFAULT_RA, dec=DEFAULT_DEC):
                         expidn = hdr.get('EXPIDN', hdr.get('EXPID',  None))
                         #import pdb; pdb.set_trace()
                         # 1) Try ObsCore em_min/em_max midpoint (meters -> microns)
-                        em_min = r.get("em_min", np.nan)
-                        em_max = r.get("em_max", np.nan)
-                        if np.isfinite(em_min) and np.isfinite(em_max):
-                            approxwv_um = 0.5 * (float(em_min) + float(em_max)) * 1e6
+                        em_min = _coerce_finite_float(r.get("em_min", np.nan))
+                        em_max = _coerce_finite_float(r.get("em_max", np.nan))
+                        if math.isfinite(em_min) and math.isfinite(em_max):
+                            approxwv_um = 0.5 * (em_min + em_max) * 1e6
                         else:
                             # 2) Fall back to WCS-WAVE median wavelength (µm) if present
                             #    SPHEREx L2B typically stores a grid in an extension named 'WCS-WAVE'

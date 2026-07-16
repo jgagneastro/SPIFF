@@ -88,6 +88,12 @@ By default, `spiff-lv2` uses anonymous S3 byte-range reads and saves a
 20×20-pixel cutout around the epoch-adjusted target position. Use
 `--no-s3-cutout` only when a full Level 2 FITS file is explicitly required.
 
+SPIFF 0.1.1 and later reconstruct the independent detector-X and detector-Y
+axes of the position-dependent PSF grid. This supports both the historical
+and corrected IRSA PSF-header ordering. For local cutouts, SPIFF also restores
+the detector origin from `SPXORX0`/`SPXORY0` (or the IRSA alternate WCS) before
+choosing a PSF plane.
+
 Inside it you will typically see:
 
 - `results.csv`

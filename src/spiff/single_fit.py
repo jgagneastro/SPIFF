@@ -21,6 +21,8 @@ import json as _json
 
 from typing import Optional, Any
 
+from .spherex_psf_selection import select_spherex_psf
+
 try:
     import ultranest
 except ImportError:  # pragma: no cover - exercised in environments without ultranest
@@ -1127,22 +1129,38 @@ def analyze_file(
         plt.tight_layout()
         save_or_show(fig, "full15_fit_radius")
 
-    # Build arrays of zone centers in index order 1..N
-    xctr_items = sorted([(int(k.split('_')[1]), hdr_psf[k]) for k in hdr_psf if k.startswith('XCTR_')])
-    yctr_items = sorted([(int(k.split('_')[1]), hdr_psf[k]) for k in hdr_psf if k.startswith('YCTR_')])
-    # ensure same length and aligned by index
-    nzone = min(len(xctr_items), len(yctr_items))
-    xctrs = np.array([v for i,v in xctr_items[:nzone]])
-    yctrs = np.array([v for i,v in yctr_items[:nzone]])
-    coords = np.vstack([xctrs, yctrs]).T
-    # choose nearest zone center to target pixel
-    idx_psf = int(np.argmin(np.hypot(coords[:,0]-xpix, coords[:,1]-ypix)))
-    psf_img = psf_cube[idx_psf, :, :]
+    # Reconstruct the independent detector X/Y grid rather than trusting the
+    # historical per-plane header pairing, and recover detector-global pixels
+    # when this image is a local cutout.
+    psf_selection = select_spherex_psf(
+        psf_cube,
+        hdr_psf,
+        float(xpix),
+        float(ypix),
+        image_header=hdr_img,
+    )
+    idx_psf = psf_selection.plane_index
+    psf_img = psf_selection.image
+    oversamp = psf_selection.oversamp
     # IMPORTANT: do not renormalize; IRSA PSFs are already photometrically correct
     if debug:
         dprint(f"Selected PSF index: {idx_psf} / {psf_cube.shape[0]-1}")
-        dprint(f"Zone center of selected PSF: x={coords[idx_psf,0]:.3f}, y={coords[idx_psf,1]:.3f}")
-        dprint(f"Distance from target to PSF zone center: {np.hypot(coords[idx_psf,0]-xpix, coords[idx_psf,1]-ypix):.3f} px")
+        dprint(
+            "PSF selection coordinates: "
+            f"local=({xpix:.3f}, {ypix:.3f}), "
+            f"detector=({psf_selection.detector_x_px:.3f}, {psf_selection.detector_y_px:.3f}), "
+            f"transform={psf_selection.coordinate_transform}"
+        )
+        if psf_selection.zone_x_center_px is not None and psf_selection.zone_y_center_px is not None:
+            dprint(
+                "Zone center of selected PSF: "
+                f"x={psf_selection.zone_x_center_px:.3f}, "
+                f"y={psf_selection.zone_y_center_px:.3f}"
+            )
+            dprint(
+                "Distance from target to PSF zone center: "
+                f"{np.hypot(psf_selection.zone_x_center_px - psf_selection.detector_x_px, psf_selection.zone_y_center_px - psf_selection.detector_y_px):.3f} px"
+            )
 
     # Helper: build detector-scale PSF cut (H x W) centered on (xcut, ycut) with extra dx,dy offsets
     # Strategy:
